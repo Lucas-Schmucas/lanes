@@ -127,6 +127,7 @@ type Model struct {
 	clip     func(string) error                  // nil: the system clipboard (tests fake it)
 	bgOut    io.Writer                           // where the background query goes; nil: stdout if a terminal (tests fake it)
 	getenv   func(string) string                 // reads TERM and TMUX for the background query; nil: os.Getenv (tests fake it)
+	syncOut  *SyncOut                            // the program's output, whose lock the background query is written under; nil: no lock
 	bg       bgCapture                           // the focus-time background query and its reply
 	open     func(string) error                  // nil: the system opener (tests fake it)
 	sampler  func() func(pid int) []session.Proc // nil: a ps sampler per agent view (tests fake it)
@@ -768,8 +769,15 @@ func (m *Model) queryBackground() tea.Cmd {
 	}
 	m.bg = bgCapture{gen: m.bg.gen + 1, active: true}
 	gen := m.bg.gen
+	lock := m.syncOut
 	return func() tea.Msg {
-		_, err := io.WriteString(out, q)
+		var err error
+		write := func() { _, err = io.WriteString(out, q) }
+		if lock != nil {
+			lock.With(write)
+		} else {
+			write()
+		}
 		return bgSentMsg{gen: gen, err: err}
 	}
 }
