@@ -2,6 +2,7 @@ package ui
 
 import (
 	"errors"
+	"fmt"
 	"os"
 	"reflect"
 	"regexp"
@@ -521,6 +522,43 @@ func TestSessionsRowFillsScreenWidth(t *testing.T) {
 			if !strings.Contains(sessionsRow(m, 1), "…") {
 				t.Errorf("width %d: long label not truncated: %q", width, sessionsRow(m, 1))
 			}
+		}
+	}
+}
+
+func TestSessionsRowFitsWidthWhenRightSideIsWide(t *testing.T) {
+	tests := []struct {
+		name   string
+		info   session.Info
+		label  string
+		orphan bool
+	}{
+		{"short badge", session.Info{Action: "fix"}, "fix", false},
+		{"short badge orphan", session.Info{Action: "fix"}, "fix", true},
+		{"long label orphan", session.Info{Action: "longer"}, "a long label for the item", true},
+		{"long badge", session.Info{Action: "fix", Claude: "waiting"}, "fix", false},
+		{"long badge orphan", session.Info{Action: "fix", Claude: "waiting"}, "fix", true},
+		{"longest badge orphan", session.Info{Action: "waiting-task", Claude: "waiting"}, "waiting-task", true},
+	}
+	for _, width := range []int{40, 60} {
+		for _, tt := range tests {
+			t.Run(fmt.Sprintf("%s/w%d", tt.name, width), func(t *testing.T) {
+				m := sessModel(t)
+				m.width = width
+				tt.info.Created = time.Now().Add(-time.Hour)
+				for _, selected := range []bool{false, true} {
+					line := m.sessionLine(sessionRow{info: tt.info, label: tt.label, orphan: tt.orphan}, selected)
+					if got := ansi.StringWidth(line); got > width {
+						t.Errorf("width %d selected %v: row is %d columns wide: %q", width, selected, got, ansi.Strip(line))
+					}
+					if width == 60 && !tt.orphan && ansi.StringWidth(line) != width {
+						t.Errorf("width %d: row is %d columns wide, want it filled", width, ansi.StringWidth(line))
+					}
+					if width == 40 && tt.name == "long label orphan" && !strings.Contains(ansi.Strip(line), "…") {
+						t.Errorf("width %d: label not cut first: %q", width, ansi.Strip(line))
+					}
+				}
+			})
 		}
 	}
 }
