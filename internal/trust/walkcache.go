@@ -1,12 +1,19 @@
 package trust
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io/fs"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
+
+	"github.com/chriha/lanes/internal/app"
+	"github.com/chriha/lanes/internal/jsonfile"
 )
 
 // racyWindow is how close to the cache write a directory's mtime may be and still be trusted unchanged: an entry
@@ -16,6 +23,8 @@ const racyWindow = 2 * time.Second
 // walkCache is what HashRoot learned about the directory structure under a root. It never holds a trust decision
 // or file contents: it only lets the next walk skip reading directories that did not change.
 type walkCache struct {
+	Version int                `json:"version"` // walkCacheVersion of the lanes that wrote it
+	Root    string             `json:"root"`    // the root it describes
 	Written int64              `json:"written"` // Unix nanoseconds the walk that produced it started
 	Dirs    map[string]walkDir `json:"dirs"`    // slash path relative to the root ("." for the root itself)
 }
@@ -25,6 +34,51 @@ type walkDir struct {
 	ModTime int64    `json:"mtime"`            // Unix nanoseconds
 	Dirs    []string `json:"dirs,omitempty"`   // names of child directories that are walked
 	Config  bool     `json:"config,omitempty"` // holds a regular .lanes.toml
+}
+
+// walkCacheVersion is the format of a walkCache file; a file of another version is ignored.
+const walkCacheVersion = 1
+
+// walkCachePath is the file holding root's walkCache: one per root, so a corrupt one costs only that root a full walk.
+func walkCachePath(root string) string {
+	sum := sha256.Sum256([]byte(root))
+	return filepath.Join(app.StateRoot(), "trust-walk", hex.EncodeToString(sum[:])+".json")
+}
+
+// hashRootCached is HashRoot reading directories through readDir, at now: it walks with root's cache file and
+// rewrites it for the tree as found.
+func hashRootCached(root string, now time.Time, readDir readDirFunc) (string, error) {
+	h, next, err := hashRootWith(root, loadWalkCache(root), now, readDir)
+	if err != nil {
+		return "", err
+	}
+	next.Version, next.Root = walkCacheVersion, root
+	// The cache only saves time: a failed write costs the next start a full walk, never a wrong hash.
+	_ = jsonfile.Write(walkCachePath(root), next, false)
+	return h, nil
+}
+
+// loadWalkCache reads root's cache file, or nil when it is missing, unreadable, corrupt, of another version or root,
+// or names a child directory the walk would not descend into (not a plain name, or a skipped one); the walk is then done without it.
+func loadWalkCache(root string) *walkCache {
+	b, err := os.ReadFile(walkCachePath(root))
+	if err != nil {
+		return nil
+	}
+	var c walkCache
+	if json.Unmarshal(b, &c) != nil || c.Version != walkCacheVersion || c.Root != root {
+		return nil
+	}
+	for _, d := range c.Dirs {
+		for _, n := range d.Dirs {
+			switch {
+			case n == "" || n == "." || n == ".." || n == ".git" || n == "node_modules",
+				strings.ContainsRune(n, '/') || strings.ContainsRune(n, filepath.Separator):
+				return nil
+			}
+		}
+	}
+	return &c
 }
 
 type readDirFunc func(string) ([]fs.DirEntry, error)
