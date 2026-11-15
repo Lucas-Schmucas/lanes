@@ -20,7 +20,14 @@ GoReleaser and publishes the GitHub release with a grouped changelog.
 | `DRY_RUN=1`  | show the version and commits, create no tag                                               |
 | `MAJOR=1`    | allow a major bump (a `type!:` commit or a `BREAKING CHANGE:` footer); refused otherwise, as v2+ needs a `/v2` module path for `go install …@latest` to see it |
 | `V=vX.Y.Z`   | tag this version instead; must be greater than the last release                           |
-| `SKIP_CI=1`  | skip the CI check                                                                         |
+| `SKIP_CI=1`  | skip the CI and `HOMEBREW_TAP_TOKEN` checks                                               |
+
+### One-time Homebrew setup
+
+The release workflow also pushes the formula to the tap `chriha/homebrew-lanes` (install: `brew install
+chriha/lanes/lanes`). That needs a fine-grained personal access token with *Contents: read and write* on the tap
+repo only, stored as the `HOMEBREW_TAP_TOKEN` secret of this repo: `gh secret set HOMEBREW_TAP_TOKEN`. `make
+version` refuses to tag while the secret is missing.
 
 Example: `make version DRY_RUN=1`.
 
