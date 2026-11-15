@@ -221,6 +221,26 @@ Any other key you bind in `[keymap]` runs its [action](actions.md#actions). Buil
 the help marks the binding as shadowed and the reload message tells you. `X` became a built-in key with
 interrupt, and `Q` for the queue view; an older `[keymap]` binding of either is now shadowed.
 
+### Jumping in after a tmux upgrade
+
+Sessions run on lanes' own tmux server (`tmux -L lanes-<project>`), started by the tmux that was installed back
+then. After a tmux upgrade the new `tmux` client may fail to attach to that older server (`open terminal failed:
+not a terminal`): the session flashes up and you are back in lanes. So before every jump (`enter`, `n`, the
+sessions view, an action with `jump = true`) lanes compares the installed `tmux -V` with the version of the
+running server. On a mismatch it asks first:
+
+```
+lanes tmux server runs 3.5a, installed tmux is 3.8: restart it, closing 2 session(s): review~_1948, shell~_1951?
+```
+
+`y` / `enter` kills the server and with it **every** session of the project (running commands stop, their output
+is gone; history records them as `killed`), then re-polls; jump in again afterwards, now on a server of the new
+version. Any other key cancels and changes nothing. If the version check itself fails, lanes warns in the footer
+and attaches anyway; an attach that fails shows its error in the footer, a normal detach does not.
+
+To restart the server by hand instead (same effect, e.g. while lanes is not running):
+`tmux -L lanes-<project> kill-server`.
+
 ## Searching
 
 Ticket rows end with a priority strip after the assignees: `▰▰▰` urgent (red), `▰▰▱` high (orange), `▰▱▱` medium
