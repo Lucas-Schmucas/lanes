@@ -4,7 +4,9 @@ import (
 	"fmt"
 	"sort"
 	"strings"
+	"time"
 
+	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/x/ansi"
 
 	"github.com/chriha/lanes/internal/history"
@@ -81,7 +83,9 @@ func relationLine(it item.Item, rel string) string {
 // preview renders exactly previewH lines of detail for the item under the cursor.
 func (m *Model) preview() string {
 	lines := make([]string, 0, previewH)
-	if it := m.items(); m.cursor < len(it) {
+	if m.onSessionsTab() {
+		lines = m.sessionPreview()
+	} else if it := m.items(); m.cursor < len(it) {
 		cur := it[m.cursor]
 		lines = append(lines, " "+sID.Render(cur.ID)+"  "+sTitle.Render(cur.Title), " "+sDim.Render(cur.URL))
 		keys := []string{}
@@ -153,6 +157,79 @@ func (m *Model) preview() string {
 		lines = append(lines, "")
 	}
 	return strings.Join(lines[:previewH], "\n") + "\n"
+}
+
+// sessPeekMsg carries the working directory and last output lines of the session called name, for the preview of
+// the sessions view.
+type sessPeekMsg struct {
+	name string
+	dir  string
+	out  []string
+	err  error
+}
+
+// pollPeek reads the working directory and last output lines of the session under the cursor of the sessions view
+// while its preview shows; nil otherwise.
+func (m *Model) pollPeek() tea.Cmd {
+	name := m.selectedSession()
+	if m.sess == nil || m.peeking || !m.preview_ || !m.onSessionsTab() || name == "" {
+		return nil
+	}
+	m.peeking = true
+	mgr := m.sess
+	return func() tea.Msg {
+		dir, out, err := mgr.Peek(name, previewH)
+		return sessPeekMsg{name, dir, out, err}
+	}
+}
+
+// onPeek takes in a pollPeek; a failed one forgets what an earlier one read of that session.
+func (m *Model) onPeek(msg sessPeekMsg) {
+	m.peeking = false
+	if msg.err != nil {
+		msg = sessPeekMsg{name: msg.name}
+	}
+	m.peek = msg
+}
+
+// sessionPreview is the preview of the session under the cursor of the sessions view: its name, action, state and
+// age, working directory, item (with title and url when a provider lists it), then as many of its last output lines
+// as fit. The directory and output come from the last pollPeek of that session.
+func (m *Model) sessionPreview() []string {
+	rows := m.sessionRows()
+	if m.sessCursor >= len(rows) {
+		return nil
+	}
+	r := rows[m.sessCursor]
+	kv := func(k, v string) string { return " " + sDim.Render(fmt.Sprintf("%-12s", k)) + v }
+	b := r.info.Badge()
+	lines := []string{
+		kv("session", sText.Render(r.info.Name)),
+		kv("action", sText.Render(r.info.Action)),
+		kv("state", badgeStyle(b.Kind).Render(b.Text)+sDim.Render("  since "+r.info.Created.Format("15:04")+" · "+age(time.Since(r.info.Created)))),
+	}
+	var peek sessPeekMsg
+	if m.peek.name == r.info.Name {
+		peek = m.peek
+	}
+	if peek.dir != "" {
+		lines = append(lines, kv("dir", sText.Render(peek.dir)))
+	}
+	itemLine := sText.Render(r.label)
+	if r.orphan {
+		itemLine += sDim.Render("  (not in any view)")
+	}
+	lines = append(lines, kv("item", itemLine))
+	if it, ok := m.itemOf(r.info.ItemKey); ok && it.URL != "" {
+		lines = append(lines, kv("url", sDim.Render(it.URL)))
+	}
+	out := peek.out[max(0, len(peek.out)-(previewH-len(lines))):]
+	label := "output"
+	for _, l := range out {
+		lines = append(lines, kv(label, sText.Render(ansi.Strip(l))))
+		label = ""
+	}
+	return lines
 }
 
 func (m *Model) previewSessions(it item.Item) []string {
