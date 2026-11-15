@@ -3,6 +3,7 @@ package ui
 import (
 	"io"
 	"os"
+	"os/exec"
 	"sync"
 )
 
@@ -34,4 +35,14 @@ func (o *SyncOut) With(f func()) {
 // WithSyncOut makes the background query write under the lock of the program's output o.
 func WithSyncOut(o *SyncOut) Option {
 	return func(m *Model) { m.syncOut = o }
+}
+
+// onTerminal gives cmd the terminal file as stdout, for a command run through tea.ExecProcess. Left alone,
+// bubbletea hands the child the program's output, which is not an *os.File here, so exec pipes it and the child
+// (tmux attach: "open terminal failed: not a terminal") sees no terminal.
+func (m *Model) onTerminal(cmd *exec.Cmd) *exec.Cmd {
+	if cmd.Stdout == nil && m.syncOut != nil {
+		cmd.Stdout = m.syncOut.File
+	}
+	return cmd
 }

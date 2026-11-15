@@ -862,7 +862,7 @@ func (m *Model) jumpTo(name string) tea.Cmd {
 			return attachDone(cmd.Run())
 		}
 	}
-	return tea.ExecProcess(cmd, attachDone)
+	return tea.ExecProcess(m.onTerminal(cmd), attachDone)
 }
 
 // attachDone is the message after an attach ended; a failed attach carries its error to the footer.
