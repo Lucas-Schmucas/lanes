@@ -154,7 +154,7 @@ an env var).
   `internal/ui/theme.go`). Packets stream continuously: parent → child along a running agent's edge (~1.2 s,
   jittered per edge, ≤ 3 in flight), a burst of 3 child → parent on finish/fail, none when ended. Lives in `internal/ui/flowview`: a character-grid canvas with
   run-length styled output, a pure `State` changed by events (`Apply`) and stepped by `dt` (`Step`), panel
-  renderers and the tree layout; it has its own tick (~70 ms) that runs only while the view is open. Its data
+  renderers and the tree layout; it has its own tick (~120 ms) that runs only while the view is open. Its data
   comes from `session.Tailer` (`internal/session/transcript.go`), which reads only the new bytes of the
   transcript the hooks recorded (`transcript_path` in the session's sidecar) and of `<session>/subagents/
   agent-<id>.{jsonl,meta.json}`; `internal/ui/agents.go` polls it in a `tea.Cmd` every 500 ms and hands the
@@ -165,8 +165,8 @@ an env var).
   state changes on `HookEvent`. Context % uses one model-id table (`session.ContextWindow`, 200k default, 1M for
   `[1m]`). Effort is the newest `effort` field per transcript (absent → the meter is omitted). An ended session is
   read once more and frozen.
-  **Processes:** `session.Sampler` (`internal/session/procs.go`) runs `ps -A -o pid=,ppid=,time=,rss=,command=` and
-  keeps the tree under the session's pane pid (`#{pane_pid}`); it parses both `time` formats (Linux `[dd-]hh:mm:ss`,
+  **Processes:** `session.Sampler` (`internal/session/procs.go`) lists `ps -A -o pid=,ppid=` to find the tree under
+  the session's pane pid (`#{pane_pid}`), then reads only those processes with `ps -p … -o pid=,ppid=,time=,rss=,command=`; it parses both `time` formats (Linux `[dd-]hh:mm:ss`,
   macOS `mm:ss.ss`) and turns the CPU-time delta of two samples over the wall-time delta into a CPU % (`ps`'s
   `%cpu` is a lifetime average on Linux, a decaying one on macOS). A pid's first sample, or a reused pid, has no
   share; a vanished root, empty output or a `ps` error give an empty tree. `agents.go` samples every 3 s in a
