@@ -137,6 +137,7 @@ type Model struct {
 	sessions   []session.Info
 	sessByItem map[string][]session.Info
 	polling    bool
+	lastPoll   time.Time   // when the last session poll started, for the idle interval
 	peek       sessPeekMsg // working directory and last output lines of a session, for the sessions view preview
 	peeking    bool        // a pollPeek is in flight
 	confirm    *confirmState
@@ -535,6 +536,30 @@ func (m *Model) Init() tea.Cmd {
 	return tea.Batch(append(cmds, m.armSpin())...)
 }
 
+// sessPollFast is the session poll interval while session state is on screen (the sessions tab or the agent view);
+// sessPollIdle is the one otherwise. Ticks come every second, so a poll is due a little early rather than a tick late.
+const (
+	sessPollFast = time.Second
+	sessPollIdle = 3 * time.Second
+)
+
+// sessPollDue says whether the tick at now should poll the tmux sessions.
+func (m *Model) sessPollDue(now time.Time) bool {
+	every := sessPollIdle
+	if m.onSessionsTab() || m.agents != nil {
+		every = sessPollFast
+	}
+	return now.Sub(m.lastPoll) >= every-sessPollFast/2
+}
+
+// tickSessions is the tick's session poll, skipped while the idle interval has not elapsed.
+func (m *Model) tickSessions(now time.Time) tea.Cmd {
+	if !m.sessPollDue(now) {
+		return nil
+	}
+	return m.pollSessions()
+}
+
 func tick() tea.Cmd {
 	return tea.Tick(time.Second, func(t time.Time) tea.Msg { return tickMsg(t) })
 }
@@ -675,7 +700,7 @@ func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if m.wake(time.Time(msg), nil) {
 			m.rebuild()
 		}
-		return m, tea.Batch(tick(), m.onTick(), m.pollSessions(), m.pollPeek(), m.pollUsage(), m.pollUsage5h())
+		return m, tea.Batch(tick(), m.onTick(), m.tickSessions(time.Time(msg)), m.pollPeek(), m.pollUsage(), m.pollUsage5h())
 	case usageMsg:
 		m.usage = msg
 	case usage5hMsg:
